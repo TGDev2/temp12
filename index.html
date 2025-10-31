@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recherche Abarak</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.9.0/localforage.min.js"></script>
+</head>
+
+<body>
+    <header>
+        <h1>Recherche Abarak</h1>
+    </header>
+
+    <div class="container">
+        <div id="message" class="green"></div>
+        <div id="itemCount"></div>
+        <div id="buttons">
+            <button onclick="loadData()">Recharger</button>
+            <button onclick="clearData()">Vider</button>
+            <button onclick="toggleLocalData()" id="toggleButton">Afficher les données locales</button>
+        </div>
+
+        <form id="uploadForm">
+            <input type="file" id="priceImage" accept="image/*">
+            <button type="button" onclick="uploadImage()">Télécharger l'image</button>
+            <input type="text" id="articleId" placeholder="ID de l'article">
+        </form>
+
+        <select id="categorySelect" onchange="filterByCategory()">
+            <option value="">-- Sélectionner une catégorie --</option>
+        </select>
+
+        <input type="text" id="searchInput" placeholder="Rechercher un article">
+        <button onclick="searchArticle()">Rechercher</button>
+
+        <div id="results"></div>
+    </div>
+
+    <footer>
+        &copy; 2024 Abarak
+    </footer>
+
+    <script>
+        let isDataVisible = false;
+
+        // Fonction pour afficher le nombre d'articles stockés
+        function updateItemCount() {
+            localforage.getItem('articles').then(articles => {
+                const itemCountDiv = document.getElementById('itemCount');
+                const count = articles ? articles.length : 0;
+                itemCountDiv.textContent = `Nombre d'articles en stockage local : ${count}`;
+            }).catch(err => {
+                console.error('Erreur lors de la récupération du nombre d’articles', err);
+            });
+        }
+
+        // Fonction pour charger les données depuis l'API et les stocker localement
+        function loadData() {
+            const messageDiv = document.getElementById('message');
+            messageDiv.style.color = 'blue';
+            messageDiv.textContent = 'Chargement des données en cours...';
+
+            fetch('api.php')
+                .then(response => response.json())
+                .then(data => {
+                    // Stocker les données localement
+                    localforage.setItem('articles', data).then(() => {
+                        messageDiv.style.color = 'green';
+                        messageDiv.textContent = 'Données chargées avec succès.';
+                        updateItemCount();
+                        populateCategorySelect(data);
+                        // Si les données locales sont affichées, les mettre à jour
+                        if (isDataVisible) {
+                            showLocalData();
+                        }
+                    }).catch(err => {
+                        messageDiv.style.color = 'red';
+                        messageDiv.textContent = 'Erreur de stockage local.';
+                        console.error('Erreur de stockage local', err);
+                    });
+                })
+                .catch(err => {
+                    messageDiv.style.color = 'red';
+                    messageDiv.textContent = 'Erreur lors de la récupération des données.';
+                    console.error('Erreur lors de la récupération des données', err);
+                });
+        }
+
+        // Fonction pour remplir le menu déroulant des catégories
+        function populateCategorySelect(data) {
+            const categorySelect = document.getElementById('categorySelect');
+            // Vider les options existantes
+            categorySelect.innerHTML = '<option value="">-- Sélectionner une catégorie --</option>';
+            const categoriesCount = {};
+
+            data.forEach(article => {
+                if (article.categories) {
+                    // Les catégories peuvent être multiples, séparées par des virgules
+                    const categories = article.categories.split(',');
+                    categories.forEach(cat => {
+                        const trimmedCat = cat.trim();
+                        if (trimmedCat) {
+                            if (categoriesCount[trimmedCat]) {
+                                categoriesCount[trimmedCat]++;
+                            } else {
+                                categoriesCount[trimmedCat] = 1;
+                            }
+                        }
+                    });
+                }
+            });
+
+            // Ne garder que les catégories ayant au moins un produit
+            const categoriesList = Object.keys(categoriesCount).sort();
+
+            categoriesList.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = `${cat} (${categoriesCount[cat]})`;
+                categorySelect.appendChild(option);
+            });
+        }
+
+        // Fonction pour filtrer les articles par catégorie
+        function filterByCategory() {
+            const selectedCategory = document.getElementById('categorySelect').value.toLowerCase();
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = ''; // Réinitialiser les résultats
+            if (!selectedCategory) {
+                resultsDiv.innerHTML = '<p>Veuillez sélectionner une catégorie.</p>';
+                return;
+            }
+            localforage.getItem('articles').then(articles => {
+                if (!articles || articles.length === 0) {
+                    resultsDiv.innerHTML = '<p>Aucune donnée disponible. Veuillez charger les données.</p>';
+                    return;
+                }
+                const results = articles.filter(article => {
+                    if (article.categories) {
+                        const categories = article.categories.toLowerCase().split(',');
+                        return categories.includes(selectedCategory);
+                    }
+                    return false;
+                });
+                displayResults(results);
+            }).catch(err => {
+                console.error('Erreur lors de la récupération des articles', err);
+            });
+        }
+
+        // Fonction pour vider les données du stockage local
+        function clearData() {
+            localforage.removeItem('articles').then(() => {
+                const messageDiv = document.getElementById('message');
+                messageDiv.style.color = 'green';
+                messageDiv.textContent = 'Les données ont été supprimées du stockage local.';
+                updateItemCount();
+                // Masquer les données locales si elles sont affichées
+                if (isDataVisible) {
+                    toggleLocalData();
+                }
+            }).catch(err => {
+                console.error('Erreur lors de la suppression des données', err);
+            });
+        }
+
+        // Fonction pour afficher ou masquer les données locales
+        function toggleLocalData() {
+            if (isDataVisible) {
+                // Masquer les données
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.innerHTML = '';
+                document.getElementById('toggleButton').textContent = 'Afficher les données locales';
+                isDataVisible = false;
+            } else {
+                // Afficher les données
+                showLocalData();
+                document.getElementById('toggleButton').textContent = 'Masquer les données locales';
+                isDataVisible = true;
+            }
+        }
+
+        // Fonction pour afficher les données locales sous forme de table
+        function showLocalData() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = ''; // Réinitialiser les résultats
+            localforage.getItem('articles').then(articles => {
+                if (!articles || articles.length === 0) {
+                    resultsDiv.innerHTML = '<p>Aucune donnée locale disponible. Veuillez charger les données.</p>';
+                    return;
+                }
+                // Créer une table pour afficher les données
+                let table = '<table>';
+                table += '<tr><th>ID Article Abarak</th><th>Code-barres</th><th>Nom</th><th>Prix (€)</th><th>Catégories</th></tr>';
+                articles.forEach(article => {
+                    table += `<tr>
+                        <td>${article.id_article_abarak}</td>
+                        <td>${article.code_barre}</td>
+                        <td>${article.nom}</td>
+                        <td>${article.prix}</td>
+                        <td>${article.categories}</td>
+                    </tr>`;
+                });
+                table += '</table>';
+                resultsDiv.innerHTML = table;
+            }).catch(err => {
+                console.error('Erreur lors de la récupération des articles', err);
+            });
+        }
+
+        function uploadImage() {
+            const fileInput = document.getElementById('priceImage');
+            const articleId = document.getElementById('articleId').value; // Assurez-vous que ce champ existe
+            const formData = new FormData();
+            formData.append('image', fileInput.files[0]);
+            formData.append('article_id', articleId);
+
+            fetch('upload.php', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(`Prix mis à jour : ${data.price} €`);
+                        // Mettre à jour l'affichage si nécessaire
+                    } else {
+                        alert(`Erreur : ${data.message}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur :', error);
+                });
+        }
+
+        // Fonction pour rechercher un article
+        function searchArticle() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = ''; // Réinitialiser les résultats
+            localforage.getItem('articles').then(articles => {
+                if (!articles || articles.length === 0) {
+                    resultsDiv.innerHTML = '<p>Aucune donnée disponible. Veuillez charger les données.</p>';
+                    return;
+                }
+                const results = articles.filter(article => article.nom.toLowerCase().includes(query));
+                displayResults(results);
+            }).catch(err => {
+                console.error('Erreur lors de la récupération des articles', err);
+            });
+        }
+
+        // Fonction pour afficher les résultats de la recherche
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';
+            if (results.length > 0) {
+                results.forEach(article => {
+                    resultsDiv.innerHTML += `<p>${article.nom} - ${article.prix}€ - Catégorie : ${article.categories}</p>`;
+                });
+            } else {
+                resultsDiv.innerHTML = '<p>Aucun article trouvé.</p>';
+            }
+        }
+
+        // Initialiser l'application au chargement de la page
+        window.onload = function () {
+            updateItemCount();
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = 'Application prête.';
+        };
+    </script>
+</body>
+
+</html>
