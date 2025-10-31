@@ -23,6 +23,17 @@
             <button onclick="toggleLocalData()" id="toggleButton">Afficher les données locales</button>
         </div>
 
+        <!-- Localisation -->
+        <div id="localisationContainer">
+            <label for="localisationSelect">Localisation :</label>
+            <select id="localisationSelect" onchange="onLocalisationChange()">
+                <option value="1">Lieu 1 (Liste 1)</option>
+                <option value="2">Lieu 2 (Liste 2)</option>
+                <option value="3">Lieu 3 (Liste 3)</option>
+                <option value="4">Lieu 4 (Toutes les listes)</option>
+            </select>
+        </div>
+
         <form id="uploadForm">
             <input type="file" id="priceImage" accept="image/*">
             <button type="button" onclick="uploadImage()">Télécharger l'image</button>
@@ -46,7 +57,46 @@
     <script>
         let isDataVisible = false;
 
-        // Fonction pour afficher le nombre d'articles stockés
+        // ---------- Helpers Localisation ----------
+        function getSelectedLocation() {
+            const sel = document.getElementById('localisationSelect');
+            return sel ? sel.value : '1';
+        }
+
+        function getSuffixForLocation(location) {
+            // Lieu 1 => pas de suffixe ; Lieu 2 => " 2" ; Lieu 3 => " 3"
+            if (location === '2') return ' 2';
+            if (location === '3') return ' 3';
+            return ''; // Lieu 1, ou par défaut
+        }
+
+        function onLocalisationChange() {
+            const value = getSelectedLocation();
+            localforage.setItem('localisation', value).then(() => {
+                refreshCurrentView();
+            }).catch(() => {
+                // même si échec de persistance, on rafraîchit l'affichage
+                refreshCurrentView();
+            });
+        }
+
+        function loadLocalisationFromStorage() {
+            return localforage.getItem('localisation').then(value => {
+                const sel = document.getElementById('localisationSelect');
+                if (sel) {
+                    sel.value = value ? String(value) : '1';
+                }
+            });
+        }
+
+        // ---------- Suffixe d'affichage ----------
+        function appendSuffixToValue(value, suffix) {
+            // Rendre sûr pour tout type : on affiche sous forme de string + suffix
+            if (value === null || value === undefined) return '' + suffix;
+            return String(value) + suffix;
+        }
+
+        // ---------- Compteur ----------
         function updateItemCount() {
             localforage.getItem('articles').then(articles => {
                 const itemCountDiv = document.getElementById('itemCount');
@@ -57,7 +107,7 @@
             });
         }
 
-        // Fonction pour charger les données depuis l'API et les stocker localement
+        // ---------- Chargement des données ----------
         function loadData() {
             const messageDiv = document.getElementById('message');
             messageDiv.style.color = 'blue';
@@ -66,15 +116,15 @@
             fetch('api.php')
                 .then(response => response.json())
                 .then(data => {
-                    // Stocker les données localement
                     localforage.setItem('articles', data).then(() => {
                         messageDiv.style.color = 'green';
                         messageDiv.textContent = 'Données chargées avec succès.';
                         updateItemCount();
                         populateCategorySelect(data);
-                        // Si les données locales sont affichées, les mettre à jour
                         if (isDataVisible) {
                             showLocalData();
+                        } else {
+                            refreshCurrentView();
                         }
                     }).catch(err => {
                         messageDiv.style.color = 'red';
@@ -89,33 +139,25 @@
                 });
         }
 
-        // Fonction pour remplir le menu déroulant des catégories
+        // ---------- Catégories ----------
         function populateCategorySelect(data) {
             const categorySelect = document.getElementById('categorySelect');
-            // Vider les options existantes
             categorySelect.innerHTML = '<option value="">-- Sélectionner une catégorie --</option>';
             const categoriesCount = {};
 
             data.forEach(article => {
                 if (article.categories) {
-                    // Les catégories peuvent être multiples, séparées par des virgules
                     const categories = article.categories.split(',');
                     categories.forEach(cat => {
                         const trimmedCat = cat.trim();
                         if (trimmedCat) {
-                            if (categoriesCount[trimmedCat]) {
-                                categoriesCount[trimmedCat]++;
-                            } else {
-                                categoriesCount[trimmedCat] = 1;
-                            }
+                            categoriesCount[trimmedCat] = (categoriesCount[trimmedCat] || 0) + 1;
                         }
                     });
                 }
             });
 
-            // Ne garder que les catégories ayant au moins un produit
             const categoriesList = Object.keys(categoriesCount).sort();
-
             categoriesList.forEach(cat => {
                 const option = document.createElement('option');
                 option.value = cat;
@@ -124,11 +166,10 @@
             });
         }
 
-        // Fonction pour filtrer les articles par catégorie
         function filterByCategory() {
-            const selectedCategory = document.getElementById('categorySelect').value.toLowerCase();
+            const selectedCategory = (document.getElementById('categorySelect').value || '').toLowerCase();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = ''; // Réinitialiser les résultats
+            resultsDiv.innerHTML = '';
             if (!selectedCategory) {
                 resultsDiv.innerHTML = '<p>Veuillez sélectionner une catégorie.</p>';
                 return;
@@ -145,20 +186,19 @@
                     }
                     return false;
                 });
-                displayResults(results);
+                displayResultsByLocation(results);
             }).catch(err => {
                 console.error('Erreur lors de la récupération des articles', err);
             });
         }
 
-        // Fonction pour vider les données du stockage local
+        // ---------- Vider ----------
         function clearData() {
             localforage.removeItem('articles').then(() => {
                 const messageDiv = document.getElementById('message');
                 messageDiv.style.color = 'green';
                 messageDiv.textContent = 'Les données ont été supprimées du stockage local.';
                 updateItemCount();
-                // Masquer les données locales si elles sont affichées
                 if (isDataVisible) {
                     toggleLocalData();
                 }
@@ -167,53 +207,73 @@
             });
         }
 
-        // Fonction pour afficher ou masquer les données locales
+        // ---------- Afficher/Masquer Données Locales ----------
         function toggleLocalData() {
             if (isDataVisible) {
-                // Masquer les données
                 const resultsDiv = document.getElementById('results');
                 resultsDiv.innerHTML = '';
                 document.getElementById('toggleButton').textContent = 'Afficher les données locales';
                 isDataVisible = false;
             } else {
-                // Afficher les données
                 showLocalData();
                 document.getElementById('toggleButton').textContent = 'Masquer les données locales';
                 isDataVisible = true;
             }
         }
 
-        // Fonction pour afficher les données locales sous forme de table
+        // ---------- Table HTML (avec suffixe) ----------
+        function buildTableHTML(items, suffix = '') {
+            let table = '<table>';
+            table += '<tr><th>ID Article Abarak</th><th>Code-barres</th><th>Nom</th><th>Prix (€)</th><th>Catégories</th></tr>';
+            items.forEach(article => {
+                const id = appendSuffixToValue(article.id_article_abarak, suffix);
+                const code = appendSuffixToValue(article.code_barre, suffix);
+                const nom = appendSuffixToValue(article.nom, suffix);
+                const prix = appendSuffixToValue(article.prix, suffix); // affichage suffixé demandé
+                const cats = appendSuffixToValue(article.categories || '', suffix);
+                table += `<tr>
+                        <td>${id}</td>
+                        <td>${code}</td>
+                        <td>${nom}</td>
+                        <td>${prix}</td>
+                        <td>${cats}</td>
+                    </tr>`;
+            });
+            table += '</table>';
+            return table;
+        }
+
+        // ---------- Affichage des données locales selon la localisation ----------
         function showLocalData() {
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = ''; // Réinitialiser les résultats
+            resultsDiv.innerHTML = '';
             localforage.getItem('articles').then(articles => {
                 if (!articles || articles.length === 0) {
                     resultsDiv.innerHTML = '<p>Aucune donnée locale disponible. Veuillez charger les données.</p>';
                     return;
                 }
-                // Créer une table pour afficher les données
-                let table = '<table>';
-                table += '<tr><th>ID Article Abarak</th><th>Code-barres</th><th>Nom</th><th>Prix (€)</th><th>Catégories</th></tr>';
-                articles.forEach(article => {
-                    table += `<tr>
-                        <td>${article.id_article_abarak}</td>
-                        <td>${article.code_barre}</td>
-                        <td>${article.nom}</td>
-                        <td>${article.prix}</td>
-                        <td>${article.categories}</td>
-                    </tr>`;
-                });
-                table += '</table>';
-                resultsDiv.innerHTML = table;
+                const loc = getSelectedLocation();
+                if (loc === '4') {
+                    // Afficher les 3 listes
+                    resultsDiv.innerHTML += '<h3>Liste 1</h3>';
+                    resultsDiv.innerHTML += buildTableHTML(articles, '');
+                    resultsDiv.innerHTML += '<h3>Liste 2</h3>';
+                    resultsDiv.innerHTML += buildTableHTML(articles, ' 2');
+                    resultsDiv.innerHTML += '<h3>Liste 3</h3>';
+                    resultsDiv.innerHTML += buildTableHTML(articles, ' 3');
+                } else {
+                    const suffix = getSuffixForLocation(loc);
+                    resultsDiv.innerHTML = buildTableHTML(articles, suffix);
+                }
             }).catch(err => {
                 console.error('Erreur lors de la récupération des articles', err);
             });
         }
 
+        // ---------- Upload image / OCR (inchangé) ----------
         function uploadImage() {
             const fileInput = document.getElementById('priceImage');
-            const articleId = document.getElementById('articleId').value; // Assurez-vous que ce champ existe
+            const articleId = document.getElementById('articleId').value;
             const formData = new FormData();
             formData.append('image', fileInput.files[0]);
             formData.append('article_id', articleId);
@@ -226,7 +286,6 @@
                 .then(data => {
                     if (data.success) {
                         alert(`Prix mis à jour : ${data.price} €`);
-                        // Mettre à jour l'affichage si nécessaire
                     } else {
                         alert(`Erreur : ${data.message}`);
                     }
@@ -236,41 +295,87 @@
                 });
         }
 
-        // Fonction pour rechercher un article
+        // ---------- Recherche ----------
         function searchArticle() {
-            const query = document.getElementById('searchInput').value.toLowerCase();
+            const query = (document.getElementById('searchInput').value || '').toLowerCase();
             const resultsDiv = document.getElementById('results');
-            resultsDiv.innerHTML = ''; // Réinitialiser les résultats
+            resultsDiv.innerHTML = '';
             localforage.getItem('articles').then(articles => {
                 if (!articles || articles.length === 0) {
                     resultsDiv.innerHTML = '<p>Aucune donnée disponible. Veuillez charger les données.</p>';
                     return;
                 }
-                const results = articles.filter(article => article.nom.toLowerCase().includes(query));
-                displayResults(results);
+                const results = articles.filter(article => (article.nom || '').toLowerCase().includes(query));
+                displayResultsByLocation(results);
             }).catch(err => {
                 console.error('Erreur lors de la récupération des articles', err);
             });
         }
 
-        // Fonction pour afficher les résultats de la recherche
-        function displayResults(results) {
+        // ---------- Affichage résultats (paragraphe) avec suffixe ----------
+        function displayResults(results, suffix = '') {
+            const resultsDiv = document.getElementById('results');
+            if (!results || results.length === 0) {
+                resultsDiv.innerHTML += '<p>Aucun article trouvé.</p>';
+                return;
+            }
+            results.forEach(article => {
+                const nom = appendSuffixToValue(article.nom, suffix);
+                const prix = appendSuffixToValue(article.prix, suffix);
+                const cats = appendSuffixToValue(article.categories || '', suffix);
+                resultsDiv.innerHTML += `<p>${nom} - ${prix}€ - Catégorie : ${cats}</p>`;
+            });
+        }
+
+        // ---------- Dispatcher selon localisation pour résultats filtrés/recherchés ----------
+        function displayResultsByLocation(results) {
+            const loc = getSelectedLocation();
             const resultsDiv = document.getElementById('results');
             resultsDiv.innerHTML = '';
-            if (results.length > 0) {
-                results.forEach(article => {
-                    resultsDiv.innerHTML += `<p>${article.nom} - ${article.prix}€ - Catégorie : ${article.categories}</p>`;
-                });
+            if (loc === '4') {
+                resultsDiv.innerHTML += '<h3>Liste 1</h3>';
+                displayResults(results, '');
+                resultsDiv.innerHTML += '<h3>Liste 2</h3>';
+                displayResults(results, ' 2');
+                resultsDiv.innerHTML += '<h3>Liste 3</h3>';
+                displayResults(results, ' 3');
             } else {
-                resultsDiv.innerHTML = '<p>Aucun article trouvé.</p>';
+                displayResults(results, getSuffixForLocation(loc));
             }
         }
 
-        // Initialiser l'application au chargement de la page
+        // ---------- Rafraîchir la vue active quand la localisation change ----------
+        function refreshCurrentView() {
+            if (isDataVisible) {
+                showLocalData();
+                return;
+            }
+            const category = document.getElementById('categorySelect').value;
+            const searchQ = document.getElementById('searchInput').value;
+            if (category) {
+                filterByCategory();
+            } else if (searchQ) {
+                searchArticle();
+            } else {
+                // Pas de vue active : ne rien afficher, mais on laisse la localisation persistée
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.innerHTML = '';
+            }
+        }
+
+        // ---------- Init ----------
         window.onload = function () {
-            updateItemCount();
-            const messageDiv = document.getElementById('message');
-            messageDiv.textContent = 'Application prête.';
+            Promise.resolve(loadLocalisationFromStorage())
+                .then(() => {
+                    updateItemCount();
+                    const messageDiv = document.getElementById('message');
+                    messageDiv.textContent = 'Application prête.';
+                })
+                .catch(() => {
+                    updateItemCount();
+                    const messageDiv = document.getElementById('message');
+                    messageDiv.textContent = 'Application prête.';
+                });
         };
     </script>
 </body>
